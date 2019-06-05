@@ -51,13 +51,13 @@ static ngx_command_t ngx_http_full_request_log_commands[] = {
 static ngx_http_module_t  ngx_http_full_request_log_module_ctx = {
     NULL,                                               /* preconfiguration */
     ngx_http_full_request_log_init,                     /* postconfiguration */
-                                                        
+
     ngx_http_full_request_log_create_main_conf,         /* create main configuration */
     NULL,                                               /* init main configuration */
-                                                        
+
     NULL,                                               /* create server configuration */
     NULL,                                               /* merge server configuration */
-                                                        
+
     ngx_http_full_request_log_create_loc_conf,          /* create location configuration */
     ngx_http_full_request_log_merge_loc_conf            /* merge location configuration */
 };
@@ -82,15 +82,15 @@ static ngx_int_t ngx_http_full_request_log_handler(ngx_http_request_t *r)
     ngx_int_t                               rc;
     ngx_http_full_request_log_loc_conf_t    *lcf;
     ngx_http_full_request_log_t             *log;
-    
+
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "http full request log handler");
-    
+
     lcf = ngx_http_get_module_loc_conf(r, ngx_http_full_request_log_module);
-    
+
     if (lcf->off) {
         return NGX_OK;
     }
-    
+
     log = lcf->log;
     if (ngx_time() == log->disk_full_time) {
         /*
@@ -100,13 +100,13 @@ static ngx_int_t ngx_http_full_request_log_handler(ngx_http_request_t *r)
          */
         return NGX_OK;
     }
-    
+
     rc = ngx_http_read_client_request_body(r, ngx_http_full_request_log_body_handler);
-    
+
     if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
         return rc;
     }
-    
+
     return NGX_DONE;
 }
 
@@ -120,11 +120,11 @@ static void ngx_http_full_request_log_body_handler(ngx_http_request_t *r)
     ngx_list_part_t                         *part;
     ngx_table_elt_t                         *header;
     ngx_chain_t                             *cl;
-    
+
     lcf = ngx_http_get_module_loc_conf(r, ngx_http_full_request_log_module);
     log = lcf->log;
-    
-    len = 50 + sizeof(CRLF) - 1 + ngx_cached_http_log_time.len + sizeof(CRLF) - 1 + sizeof(CRLF) - 1 + r->request_line.len + sizeof(CRLF) - 1 + sizeof(CRLF) - 1;
+
+    len = 50 + sizeof(LF) - 1 + r->request_line.len + sizeof(LF) - 1;
     part = &r->headers_in.headers.part;
     header = part->elts;
     for (i = 0; /* void */; i++) {
@@ -132,29 +132,25 @@ static void ngx_http_full_request_log_body_handler(ngx_http_request_t *r)
             if (part->next == NULL) {
                 break;
             }
-            
+
             part = part->next;
             header = part->elts;
             i = 0;
         }
-        len += header[i].key.len + sizeof(": ") - 1 + header[i].value.len + sizeof(CRLF) - 1;
+        len += sizeof('> ') - 1 + header[i].key.len + sizeof(": ") - 1 + header[i].value.len + sizeof(LF) - 1;
     }
-    
+
     b = ngx_create_temp_buf(r->pool, len);
     if (b == NULL) {
         return;
     }
-    
-    b->last = ngx_copy(b->last, "--------------------------------------------------", 50);
-    *b->last++ = CR; *b->last++ = LF;
-    
-    b->last = ngx_copy(b->last, ngx_cached_http_log_time.data, ngx_cached_http_log_time.len);
-    *b->last++ = CR; *b->last++ = LF;
-    *b->last++ = CR; *b->last++ = LF;
-    
+
+    b->last = ngx_copy(b->last, "==================================================", 50);
+    *b->last++ = LF;
+
     b->last = ngx_copy(b->last, r->request_line.data, r->request_line.len);
-    *b->last++ = CR; *b->last++ = LF;
-    
+    *b->last++ = LF;
+
     part = &r->headers_in.headers.part;
     header = part->elts;
     for (i = 0; /* void */; i++) {
@@ -162,39 +158,40 @@ static void ngx_http_full_request_log_body_handler(ngx_http_request_t *r)
             if (part->next == NULL) {
                 break;
             }
-            
+
             part = part->next;
             header = part->elts;
             i = 0;
         }
-        
+
+        *b->last++ = '>';
+        *b->last++ = ' ';
         b->last = ngx_copy(b->last, header[i].key.data, header[i].key.len);
-        *b->last++ = ':'; *b->last++ = ' ';
+        *b->last++ = ':';
+        *b->last++ = ' ';
         b->last = ngx_copy(b->last, header[i].value.data, header[i].value.len);
-        *b->last++ = CR; *b->last++ = LF;
-        
-        ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "http full request log header: \"%V: %V\"", &header[i].key, &header[i].value);
+        *b->last++ = LF;
     }
-    
-    *b->last++ = CR; *b->last++ = LF;
+
+    *b->last++ = LF;
     ngx_http_full_request_log_write(r, log, b->pos, len);
-    
+
     if (r->request_body == NULL || r->request_body->bufs == NULL) {
         return;
     }
-    
+
     cl = r->request_body->bufs;
     buf = cl->buf;
-    
+
     len = buf->last - buf->pos;
     ngx_http_full_request_log_write(r, log, buf->pos, len);
-    
+
     if (cl->next != NULL) {
         next = cl->next->buf;
         len = next->last - next->pos;
         ngx_http_full_request_log_write(r, log, next->pos, len);
     }
-    
+
     ngx_http_full_request_log_write(r, log, (unsigned char *)"\r\n", 2);
 }
 
@@ -204,30 +201,30 @@ static void ngx_http_full_request_log_write(ngx_http_request_t *r, ngx_http_full
     time_t      now;
     ssize_t     n;
     ngx_err_t   err;
-    
+
     name = log->file->name.data;
     n = ngx_write_fd(log->file->fd, buf, len);
-    
+
     if (n == (ssize_t)len) {
         return;
     }
-    
+
     now = ngx_time();
     if (n == -1) {
         err = ngx_errno;
-        
+
         if (err == NGX_ENOSPC) {
             log->disk_full_time = now;
         }
-        
+
         if (now - log->error_log_time > 59) {
             ngx_log_error(NGX_LOG_ALERT, r->connection->log, err, ngx_write_fd_n " to \"%s\" failed", name);
             log->error_log_time = now;
         }
-        
+
         return;
     }
-    
+
     if (now - log->error_log_time > 59) {
         ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, ngx_write_fd_n " to \"%s\" was incomplete: %z of %uz", name, n, len);
         log->error_log_time = now;
@@ -239,19 +236,19 @@ static ngx_int_t ngx_http_full_request_log_init(ngx_conf_t *cf)
     ngx_http_handler_pt                     *h;
     ngx_http_full_request_log_main_conf_t   *lmcf;
     ngx_http_core_main_conf_t               *cmcf;
-    
+
     lmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_full_request_log_module);
     if (lmcf->enable) {
         cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
-        
+
         h = ngx_array_push(&cmcf->phases[NGX_HTTP_LOG_PHASE].handlers);
         if (h == NULL) {
             return NGX_ERROR;
         }
-        
+
         *h = ngx_http_full_request_log_handler;
     }
-    
+
     return NGX_OK;
 }
 
@@ -260,16 +257,16 @@ static char *ngx_http_full_request_log_set_log(ngx_conf_t *cf, ngx_command_t *cm
     ngx_str_t                               *value;
     ngx_http_full_request_log_main_conf_t   *lmcf;
     ngx_http_full_request_log_loc_conf_t    *llcf = conf;
-    
+
     lmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_full_request_log_module);
     if (lmcf->enable) {
         value = cf->args->elts;
-        
+
         if (ngx_strcmp(value[1].data, "off") == 0) {
             llcf->off = 1;
             return NGX_CONF_OK;
         }
-        
+
         llcf->off = 0;
         llcf->log = ngx_pcalloc(cf->pool, sizeof(ngx_http_full_request_log_t));
         ngx_memzero(llcf->log, sizeof(ngx_http_full_request_log_t));
@@ -278,35 +275,35 @@ static char *ngx_http_full_request_log_set_log(ngx_conf_t *cf, ngx_command_t *cm
             return NGX_CONF_ERROR;
         }
     }
-    
+
     return NGX_CONF_OK;
 }
 
 static void *ngx_http_full_request_log_create_main_conf(ngx_conf_t *cf)
 {
     ngx_http_full_request_log_main_conf_t *conf;
-    
+
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_full_request_log_main_conf_t));
     if (conf == NULL) {
         return NGX_CONF_ERROR;
     }
-    
+
     conf->enable = NGX_CONF_UNSET;
-    
+
     return conf;
 }
 
 static void *ngx_http_full_request_log_create_loc_conf(ngx_conf_t *cf)
 {
     ngx_http_full_request_log_loc_conf_t *conf;
-    
+
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_full_request_log_loc_conf_t));
     if (conf == NULL) {
         return NGX_CONF_ERROR;
     }
-    
+
     conf->off = NGX_CONF_UNSET;
-    
+
     return conf;
 }
 
@@ -314,13 +311,13 @@ static char *ngx_http_full_request_log_merge_loc_conf(ngx_conf_t *cf, void *pare
 {
     ngx_http_full_request_log_loc_conf_t *prev = parent;
     ngx_http_full_request_log_loc_conf_t *conf = child;
-    
+
     if (conf->log || (conf->off != NGX_CONF_UNSET)) {
         return NGX_CONF_OK;
     }
-    
+
     conf->log = prev->log;
     conf->off = prev->off;
-    
+
     return NGX_CONF_OK;
 }
